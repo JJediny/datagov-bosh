@@ -1,0 +1,125 @@
+name: ((merge))
+director_uuid: ((merge))
+
+meta:
+  networks: ~
+
+releases:
+ - name: docker
+   version: latest
+
+compilation:
+  workers: 1
+  network: default
+  reuse_compilation_vms: true
+  cloud_properties:
+    instance_type: m3.xlarge
+
+update:
+  canaries: 0
+  canary_watch_time: 30000-60000
+  update_watch_time: 30000-60000
+  max_in_flight: 32
+  serial: false
+
+networks:
+  - name: default
+    type: manual
+    subnets:
+      - range: ((meta.networks.range))
+        gateway: ((meta.networks.gateway))
+        dns: ((meta.networks.dns))
+        reserved: ((meta.networks.reserved))
+        static: ((meta.networks.static))
+        cloud_properties:
+          subnet: ((meta.networks.subnet_id))
+          security_groups: ((meta.networks.security_groups))
+
+resource_pools:
+  - name: controller
+    network: default
+    stemcell:
+      name: bosh-aws-xen-hvm-ubuntu-trusty-go_agent
+      version: latest
+    cloud_properties:
+      instance_type: m3.xlarge
+      elbs: ((meta.networks.elbs))
+    dns: ((meta.networks.dns))
+
+  - name: node
+    network: default
+    stemcell:
+      name: bosh-aws-xen-hvm-ubuntu-trusty-go_agent
+      version: latest
+    cloud_properties:
+      instance_type: m3.xlarge
+    dns: ((meta.networks.dns))
+
+jobs:
+  - name: shipyard-controller
+    instances: 1
+    resource_pool: controller
+    persistent_disk: 65536
+    templates:
+      - name: docker
+      - name: containers
+    networks:
+      - name: default
+        static_ips:
+          - ((meta.networks.controller_ip))
+        default: [dns, gateway]
+
+    properties:
+      containers:
+        - name: shipyard_rethinkdb
+          image: "rethinkdb"
+
+        - name: shipyard_discovery
+          image: microbox/etcd
+          command: "-name discovery"
+          bind_ports:
+            - 4001:4001
+            - 7001:7001
+
+        - name: shipyard_proxy
+          image: ehazlett/docker-proxy:latest
+          bind_ports:
+            - 2375:2375
+          bind_volumes:
+            - /var/vcap/sys/run/docker/docker.sock
+          env_vars:
+            - "PORT=2375"
+          command: "-d /var/vcap/sys/run/docker/docker.sock"
+
+        - name: shipyard_swarm_manager
+          image: swarm:latest
+          command: "manage --host tcp://0.0.0.0:3375 etcd://((meta.networks.controller_ip)):4001"
+
+        - name: shipyard_swarm_agent
+          image: swarm:latest
+          command: "join --addr ((meta.networks.controller_ip)):2375 etcd://((meta.networks.controller_ip)):4001"
+
+        - name: shipyard_controller
+          image: "shipyard/shipyard:latest"
+          bind_ports:
+            - 8080:8080
+          command: "server -d tcp://swarm:3375"
+          links:
+            - shipyard_rethinkdb:rethinkdb
+            - shipyard_swarm_manager:swarm
+
+  - name: shipyard-node
+    instances: 1
+    resource_pool: node
+    persistent_disk: 65536
+    networks:
+      - name: default
+        default: [dns, gateway]
+    templates:
+      - name: docker
+      - name: containers
+    properties:
+      containers:
+        - name: shipyard_swarm_agent
+          image: swarm:latest
+          command: "join --addr ((meta.networks.controller_ip)):2375 etcd://((meta.networks.controller_ip)):4001"

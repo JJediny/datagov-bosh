@@ -1,0 +1,29 @@
+meta:
+  networks:
+  private:
+    static_ips: [10.0.0.6]
+  bosh:
+    static_ips: [52.1.221.149]
+
+resource_pools:
+- name: vms
+  cloud_properties:
+    instance_type: t2.medium
+    ephemeral_disk:
+      size: 25_000
+      type: gp2
+    availability_zone: us-east-1b
+    elbs: [datagov-bosh]
+
+networks:
+- name: bosh
+  type: vip
+- name: private
+  type: manual
+  subnets:
+  - range: 10.0.0.0/26
+    gateway: 10.0.0.1
+    dns: [10.0.0.6, 10.0.0.2]
+    cloud_properties:
+      subnet: subnet-5768bd0f
+

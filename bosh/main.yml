@@ -1,0 +1,174 @@
+name: bosh
+
+meta:
+  db: ~
+  aws: ~
+  networks:
+    private:
+      static_ips: ~
+    bosh:
+      static_ips: ~
+  properties: ~
+
+
+releases:
+- name: bosh
+  url: https://bosh.io/d/github.com/cloudfoundry/bosh?v=251
+  sha1: 649fca64ac878476c6d68fc5e7ff86c2d879be16
+- name: bosh-aws-cpi
+  url: https://bosh.io/d/github.com/cloudfoundry-incubator/bosh-aws-cpi-release?v=43
+  sha1: 38cba455cb5beeac5ee60b39f88b2af751655595
+
+resource_pools:
+- name: vms
+  network: private
+  stemcell:
+   url: https://bosh.io/d/stemcells/bosh-aws-xen-hvm-ubuntu-trusty-go_agent?v=3189
+   sha1: da39a3ee5e6b4b0.655bfef95601890afd80709
+  cloud_properties:
+    instance_type: ((merge))
+    ephemeral_disk:
+      size: ((merge))
+      type: gp2
+    availability_zone: ((merge))
+    elbs: ((merge))
+
+networks:
+- name: bosh
+  type: vip
+- name: private
+  type: manual
+  subnets:
+  - range: ((merge))
+    gateway: ((merge))
+    dns: ((merge))
+    cloud_properties:
+      subnet: ((merge))
+
+jobs:
+- name: bosh
+  instances: 1
+
+  templates:
+  - {name: nats, release: bosh}
+  - {name: redis, release: bosh}
+  - {name: director, release: bosh}
+  - {name: health_monitor, release: bosh}
+  - {name: registry, release: bosh}
+  - {name: blobstore, release: bosh}
+  - {name: postgres, release: bosh}
+  - {name: powerdns, release: bosh}
+  - {name: aws_cpi, release: bosh-aws-cpi}
+
+
+  resource_pool: vms
+  persistent_disk: 100480
+  networks:
+  - name: private
+    static_ips: ((meta.networks.private.static_ips))
+    default: [dns, gateway]
+  - name: bosh
+    static_ips: ((meta.networks.bosh.static_ips))
+
+  properties:
+    nats:
+      address: 127.0.0.1
+      user: nats
+      password: ((meta.properties.nats.password))
+    redis:
+      listen_address: 127.0.0.1
+      address: 127.0.0.1
+      password: ((meta.properties.redis.password))
+    postgres: &db
+      listen_address: 127.0.0.1
+      host: 127.0.0.1
+      user: ((meta.db.user))
+      password: ((meta.db.pass))
+      database: bosh
+      adapter: postgres
+
+    dns:
+      address: ((meta.networks.private.static_ips))
+      db: *db
+      user: ((meta.properties.dns.user))
+      password: ((meta.properties.dns.password))
+      database:
+        name: powerdns
+      webserver:
+        password: ((meta.properties.dns.webserver.password))
+      replication:
+        basic_auth: ((meta.properties.dns.replication.basic_auth))
+        user: ((meta.properties.dns.replication.user))
+        password: ((meta.properties.dns.replication.password ))
+      recursor: ((meta.networks.private.static_ips))
+
+    registry:
+      address: ((meta.networks.private.static_ips))
+      host: ((meta.networks.private.static_ips))
+      db: *db
+      http:
+        user: ((meta.properties.registry.http.user)),
+        password: ((meta.properties.registry.http.password))
+        port: 25777
+      username: ((meta.properties.registry.username))
+      password: ((meta.properties.registry.password))
+      port: 25777
+
+    blobstore:
+      address: 10.0.0.6
+      port: 25250
+      provider: dav
+      director:
+        user: director
+        password: ((meta.properties.blobstore.director.password))
+      agent:
+        user: agent
+        password: ((meta.properties.blobstore.agent.password))
+
+    director:
+      address: 127.0.0.1
+      name: datagov-bosh
+      db: *db
+      cpi_job: aws_cpi
+      max_threads: 10
+      user_management:
+        provider: local
+        local:
+          users:
+          - {name: admin, password: ((meta.properties.director.admin_pass)}
+          - {name: hm, password: ((meta.properties.director.hm_pass))}
+
+    hm:
+      director_account: {user: hm, password: ((meta.properties.director.hm_pass))}
+      resurrector_enabled: true
+      cloud_watch_enabled: true
+
+    aws: &aws
+      access_key_id: ((meta.aws.access_key_id))
+      secret_access_key: ((meta.aws.secret_access_key))
+      default_key_name: ((meta.aws.default_key_name))
+      default_security_groups: ((meta.aws.default_security_groups))
+      region: us-east-1
+
+    agent: {mbus: "nats://nats:((meta.properties.nats.password))@10.0.0.6:4222"}
+
+    ntp: &ntp [0.pool.ntp.org, 1.pool.ntp.org]
+
+cloud_provider:
+  template:
+    name: aws_cpi
+    release: bosh-aws-cpi
+
+  ssh_tunnel:
+    host: ((merge))
+    port: 22
+    user: vcap
+    private_key: ((merge)) # Path relative to this manifest file
+
+  mbus: ((merge))
+
+  properties:
+    aws: *aws
+    agent: {mbus: "https://mbus:mbus-password@0.0.0.0:6868"}
+    blobstore: {provider: local, path: /var/vcap/micro_bosh/data/cache}
+    ntp: *ntp
