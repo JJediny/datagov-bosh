@@ -2,6 +2,7 @@ bosh/secrets.yml
 bosh-state.json
 config/dev.yml
 config/private.yml
+docker/network.yml
 releases/*.tgz
 dev_releases
 blobs/*
