@@ -122,4 +122,4 @@ jobs:
       containers:
         - name: shipyard_swarm_agent
           image: swarm:latest
-          command: "join --addr ((meta.networks.controller_ip)):2375 etcd://((meta.networks.controller_ip)):4001"
+          command: "join --addr 0.shipyard-node.default.datagov-dockerswarm.bosh:2375 etcd://((meta.networks.controller_ip)):4001"
