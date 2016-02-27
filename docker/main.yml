@@ -73,7 +73,9 @@ jobs:
       containers:
         - name: shipyard_rethinkdb
           image: "rethinkdb"
-
+          bind_volumes:
+            - /data
+            
         - name: shipyard_discovery
           image: microbox/etcd
           command: "-name discovery"
@@ -82,7 +84,7 @@ jobs:
             - 7001:7001
 
         - name: shipyard_proxy
-          image: ehazlett/docker-proxy:latest
+          image: shipyard/docker-proxy:latest
           bind_ports:
             - 2375:2375
           bind_volumes:
